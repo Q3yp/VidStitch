@@ -8,7 +8,7 @@ from PIL import Image
 class VideoStitcher:
     def __init__(self):
         self.clips = []
-        self.search_window = 1.0  # seconds to search at head/tail
+        self.search_window = 2  # seconds to search at head/tail
 
     def get_thumbnail(self, video_path):
         """
@@ -39,7 +39,7 @@ class VideoStitcher:
         original_aspect = original_w / original_h
 
         # Define target height for comparison (e.g., 128 pixels)
-        target_height = 128
+        target_height = 512
         target_width = int(target_height * original_aspect)
         
         # Ensure target_width is at least 1 pixel to avoid errors with very thin videos
