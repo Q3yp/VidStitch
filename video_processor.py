@@ -8,7 +8,7 @@ from PIL import Image
 class VideoStitcher:
     def __init__(self):
         self.clips = []
-        self.search_window = 2.0  # seconds to search at head/tail
+        self.search_window = 1.0  # seconds to search at head/tail
 
     def get_thumbnail(self, video_path):
         """
@@ -34,10 +34,20 @@ class VideoStitcher:
         Calculates similarity between two frames using MSE on resized grayscale images.
         Lower score means more similar.
         """
-        # Resize for performance (64x64 is sufficient for structural matching)
-        h, w = 64, 64
-        img1 = cv2.resize(cv2.cvtColor(frame1, cv2.COLOR_RGB2GRAY), (w, h))
-        img2 = cv2.resize(cv2.cvtColor(frame2, cv2.COLOR_RGB2GRAY), (w, h))
+        # Get original aspect ratio from one of the frames
+        original_h, original_w, _ = frame1.shape
+        original_aspect = original_w / original_h
+
+        # Define target height for comparison (e.g., 128 pixels)
+        target_height = 128
+        target_width = int(target_height * original_aspect)
+        
+        # Ensure target_width is at least 1 pixel to avoid errors with very thin videos
+        target_width = max(1, target_width)
+
+        # Resize frames preserving aspect ratio
+        img1 = cv2.resize(cv2.cvtColor(frame1, cv2.COLOR_RGB2GRAY), (target_width, target_height))
+        img2 = cv2.resize(cv2.cvtColor(frame2, cv2.COLOR_RGB2GRAY), (target_width, target_height))
         
         mse = np.mean((img1 - img2) ** 2)
         return mse
@@ -67,7 +77,7 @@ class VideoStitcher:
         # iter_frames yields (t, frame) ideally, but moviepy yields just frame
         # We'll generate times manually
         # Avoid exact end of clip to prevent "bytes wanted but 0 bytes read" warning
-        safe_duration1 = max(0, duration1 - 0.05)
+        safe_duration1 = max(0, duration1 - 0.01)
         t1_start = max(0, safe_duration1 - search_dur1)
         
         times1 = np.linspace(t1_start, safe_duration1, int(search_dur1 * fps_check))
@@ -196,3 +206,9 @@ class VideoStitcher:
             # Cleanup
             for clip in loaded_clips:
                 clip.close()
+
+if __name__ == "__main__":
+    print("VideoStitcher module loaded.")
+    # You can add test code here if needed
+    stitcher = VideoStitcher()
+    print("VideoStitcher initialized successfully.")

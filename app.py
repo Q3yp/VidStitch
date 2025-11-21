@@ -14,6 +14,43 @@ from video_processor import VideoStitcher
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
+def resize_image_preserve_aspect(image, target_width, target_height):
+    """
+    Resizes a PIL Image to fit within target_width x target_height,
+    preserving aspect ratio and padding with black bars.
+    """
+    original_width, original_height = image.size
+    
+    # Calculate aspect ratios
+    original_aspect = original_width / original_height
+    target_aspect = target_width / target_height
+    
+    if original_aspect > target_aspect:
+        # Original is wider than target. Scale based on width.
+        new_width = target_width
+        new_height = int(target_width / original_aspect)
+    else:
+        # Original is taller than target or same aspect. Scale based on height.
+        new_height = target_height
+        new_width = int(target_height * original_aspect)
+        
+    # Resize the image using high-quality downsampling filter
+    resized_image = image.resize((new_width, new_height), Image.LANCZOS)
+    
+    # Create a new blank image with the target dimensions (for padding)
+    # Ensure the image is in 'RGB' mode before creating a new blank image with RGB color
+    if resized_image.mode != 'RGB':
+        resized_image = resized_image.convert('RGB')
+    
+    padded_image = Image.new("RGB", (target_width, target_height), (0, 0, 0)) # Black background
+    
+    # Paste the resized image onto the center of the new blank image
+    x_offset = (target_width - new_width) // 2
+    y_offset = (target_height - new_height) // 2
+    padded_image.paste(resized_image, (x_offset, y_offset))
+    
+    return padded_image
+
 def pil_to_photoimage(pil_image):
     if pil_image is None:
         return None
@@ -170,15 +207,27 @@ class VideoPlayerFrame(ctk.CTkFrame):
                     self.show_frame(frame)
 
 class DraggableItem(ctk.CTkFrame):
-    def __init__(self, master, index, video_path, thumbnail_photo, on_drag_start, on_drag_release, **kwargs):
+    def __init__(self, master, index, video_path, thumbnail_photo, on_drag_start, on_drag_release, on_remove, **kwargs):
         super().__init__(master, **kwargs)
         self.index = index
         self.video_path = video_path
         self.on_drag_start = on_drag_start
         self.on_drag_release = on_drag_release
+        self.on_remove = on_remove
         
         self.configure(fg_color=("gray85", "gray20"), corner_radius=6)
 
+        # Pack Handle FIRST (Right) so it takes precedence
+        self.handle = ctk.CTkLabel(self, text="☰", width=30, cursor="hand2")
+        self.handle.pack(side="right", padx=5)
+        self.handle.bind("<Button-1>", self.start_drag)
+        self.handle.bind("<ButtonRelease-1>", self.stop_drag)
+
+        # Pack Remove Button (Left)
+        self.remove_btn = ctk.CTkButton(self, text="X", width=30, height=30, fg_color="#ff4d4d", hover_color="#cc0000", command=lambda: self.on_remove(self.index))
+        self.remove_btn.pack(side="left", padx=5)
+
+        # Pack Thumbnail (Left)
         self.thumb_label = ctk.CTkLabel(self, text="", width=80, height=45)
         if thumbnail_photo:
             self.thumb_label.configure(image=thumbnail_photo)
@@ -186,15 +235,14 @@ class DraggableItem(ctk.CTkFrame):
             self.thumb_label.configure(text="No Img")
         self.thumb_label.pack(side="left", padx=5, pady=5)
 
+        # Pack Name (Fill Remaining)
         filename = os.path.basename(video_path)
+        if len(filename) > 30:
+            filename = filename[:20] + "..." + filename[-7:]
+            
         self.name_label = ctk.CTkLabel(self, text=filename, anchor="w", font=ctk.CTkFont(size=13))
         self.name_label.pack(side="left", fill="x", expand=True, padx=5)
 
-        self.handle = ctk.CTkLabel(self, text="☰", width=30, cursor="hand2")
-        self.handle.pack(side="right", padx=5)
-
-        self.handle.bind("<Button-1>", self.start_drag)
-        self.handle.bind("<ButtonRelease-1>", self.stop_drag)
         self.bind("<Button-1>", self.start_drag)
         self.bind("<ButtonRelease-1>", self.stop_drag)
 
@@ -267,6 +315,13 @@ class App(ctk.CTk):
 
         self.list_widgets = []
 
+    def remove_video(self, index):
+        if 0 <= index < len(self.video_paths):
+            path = self.video_paths.pop(index)
+            # We can keep the thumbnail in cache or remove it. 
+            # self.thumbnails.pop(path, None) 
+            self.refresh_list()
+
     def add_videos(self):
         files = filedialog.askopenfilenames(filetypes=[("Video Files", "*.mp4 *.mov *.avi *.mkv")])
         if files:
@@ -275,8 +330,11 @@ class App(ctk.CTk):
                     self.video_paths.append(f)
                     pil_thumb = self.stitcher.get_thumbnail(f)
                     if pil_thumb:
-                        pil_thumb = pil_thumb.resize((80, 45))
-                        photo = pil_to_photoimage(pil_thumb)
+                        # Resize for thumbnail, preserving aspect ratio
+                        thumb_display_width = 80
+                        thumb_display_height = 45
+                        pil_thumb_resized = resize_image_preserve_aspect(pil_thumb, thumb_display_width, thumb_display_height)
+                        photo = pil_to_photoimage(pil_thumb_resized)
                         self.thumbnails[f] = photo
                     else:
                         self.thumbnails[f] = None
@@ -294,7 +352,8 @@ class App(ctk.CTk):
                 video_path=path, 
                 thumbnail_photo=self.thumbnails.get(path),
                 on_drag_start=self.on_drag_start, 
-                on_drag_release=self.on_drag_release
+                on_drag_release=self.on_drag_release,
+                on_remove=self.remove_video
             )
             item.pack(fill="x", pady=2, padx=2)
             self.list_widgets.append(item)
